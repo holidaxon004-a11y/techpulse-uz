@@ -1,0 +1,418 @@
+// ============================================================================
+// TECHPULSE.UZ — PRISMA ORM POSTGRESQL SCHEMA
+// 25 ta o'zaro bog'langan professional jadvallar
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Roles (Rollar: SUPER_ADMIN, MANAGER, SUPPORT, CUSTOMER)
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique // SUPER_ADMIN, MANAGER, SUPPORT, CUSTOMER
+  description String?
+  permissions Permission[]
+  admins      Admin[]
+  users       User[]
+  createdAt   DateTime     @default(now())
+}
+
+// 2. Permissions (Har bir rol uchun ruxsatlar)
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique // e.g., manage_products, manage_orders, manage_ai, manage_chat
+  description String
+  roles       Role[]
+  createdAt   DateTime @default(now())
+}
+
+// 3. Users (Mijozlar)
+model User {
+  id            String          @id @default(uuid())
+  fullName      String
+  phone         String          @unique
+  email         String?         @unique
+  passwordHash  String
+  language      String          @default("uz") // uz, ru, en
+  avatarUrl     String?
+  isActive      Boolean         @default(true)
+  roleId        String?
+  role          Role?           @relation(fields: [roleId], references: [id])
+  orders        Order[]
+  reviews       Review[]
+  favorites     Favorite[]
+  addresses     Address[]
+  conversations Conversation[]
+  tickets       SupportTicket[]
+  notifications Notification[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+// 4. Admins (Admin panel xodimlari)
+model Admin {
+  id              String          @id @default(uuid())
+  fullName        String
+  email           String          @unique
+  phone           String          @unique
+  passwordHash    String
+  roleId          String
+  role            Role            @relation(fields: [roleId], references: [id])
+  isActive        Boolean         @default(true)
+  assignedChats   Conversation[]
+  assignedTickets SupportTicket[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+// 5. Categories (Kategoriyalar)
+model Category {
+  id          String     @id @default(uuid())
+  slug        String     @unique
+  nameUz      String
+  nameRu      String
+  nameEn      String
+  icon        String
+  description String?
+  parentId    String?
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryHierarchy")
+  products    Product[]
+  createdAt   DateTime   @default(now())
+}
+
+// 6. Brands (Brendlar)
+model Brand {
+  id          String    @id @default(uuid())
+  slug        String    @unique
+  name        String    @unique
+  logoUrl     String?
+  country     String?
+  isFeatured  Boolean   @default(true)
+  products    Product[]
+  createdAt   DateTime  @default(now())
+}
+
+// 7. Products (Mahsulotlar — UZS narxda)
+model Product {
+  id               String                 @id @default(uuid())
+  slug             String                 @unique
+  sku              String                 @unique
+  nameUz           String
+  nameRu           String
+  nameEn           String
+  shortDescUz      String
+  shortDescRu      String
+  shortDescEn      String
+  descriptionUz    String
+  descriptionRu    String
+  descriptionEn    String
+  priceUzs         BigInt                 // Asosiy narx (UZS)
+  oldPriceUzs      BigInt?                // Eski narx (UZS)
+  discountPercent  Int                    @default(0)
+  categoryId       String
+  category         Category               @relation(fields: [categoryId], references: [id])
+  brandId          String
+  brand            Brand                  @relation(fields: [brandId], references: [id])
+  componentType    String?                // CPU, GPU, MOTHERBOARD, RAM, SSD, PSU, COOLER, CASE, MONITOR, LAPTOP, PREBUILT, PERIPHERAL
+  rating           Float                  @default(4.8)
+  reviewsCount     Int                    @default(0)
+  salesCount       Int                    @default(0)
+  isFeatured       Boolean                @default(false)
+  isNew            Boolean                @default(false)
+  isBestSeller     Boolean                @default(false)
+  isGaming         Boolean                @default(false)
+  isActive         Boolean                @default(true)
+  warrantyMonths   Int                    @default(12)
+  seoTitle         String?
+  seoDescription   String?
+  images           ProductImage[]
+  specifications   ProductSpecification[]
+  inventory        Inventory?
+  orderItems       OrderItem[]
+  reviews          Review[]
+  favorites        Favorite[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+}
+
+// 8. ProductImages (Mahsulot rasmlari)
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?
+  isPrimary Boolean  @default(false)
+  sortOrder Int      @default(0)
+}
+
+// 9. ProductSpecifications (Texnik xususiyatlar va PC Builder moslik parametrlari)
+model ProductSpecification {
+  id        String  @id @default(uuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  key       String  // e.g., socket, memoryType, wattage, formFactor, vram, refreshRate
+  labelUz   String
+  labelRu   String
+  labelEn   String
+  value     String
+}
+
+// 10. Inventory (Ombor qoldig'i)
+model Inventory {
+  id                String   @id @default(uuid())
+  productId         String   @unique
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockQuantity     Int      @default(0)
+  reservedQuantity  Int      @default(0)
+  lowStockThreshold Int      @default(5)
+  warehouseLocation String   @default("Toshkent Bosh Ombori A-1")
+  inStock           Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+}
+
+// 11. Orders (Buyurtmalar)
+model Order {
+  id              String      @id @default(uuid())
+  orderNumber     String      @unique // e.g., TP-2026-1001
+  userId          String?
+  user            User?       @relation(fields: [userId], references: [id])
+  customerName    String
+  customerPhone   String
+  region          String      // Viloyat
+  district        String      // Tuman yoki shahar
+  address         String      // Yetkazib berish manzili
+  comment         String?
+  status          String      @default("NEW") // NEW, CONFIRMED, PREPARING, SHIPPING, DELIVERED, CANCELLED
+  subtotalUzs     BigInt
+  deliveryFeeUzs  BigInt      @default(0)
+  discountUzs     BigInt      @default(0)
+  totalUzs        BigInt
+  couponCode      String?
+  paymentMethod   String      // CASH, CLICK, PAYME, UZUM
+  paymentStatus   String      @default("PENDING") // PENDING, PAID, FAILED, REFUNDED
+  trackingCode    String?
+  items           OrderItem[]
+  payments        Payment[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+// 12. OrderItems (Buyurtma mahsulotlari)
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  productName String
+  priceUzs    BigInt
+  quantity    Int
+  totalUzs    BigInt
+}
+
+// 13. Payments (To'lov tranzaksiyalari va Server-side tekshiruv)
+model Payment {
+  id                String   @id @default(uuid())
+  orderId           String
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider          String   // CASH, CLICK, PAYME, UZUM
+  amountUzs         BigInt
+  status            String   @default("PENDING") // PENDING, PAID, FAILED
+  externalTxId      String?  @unique
+  signatureVerified Boolean  @default(false)
+  rawPayload        String?
+  paidAt            DateTime?
+  createdAt         DateTime @default(now())
+}
+
+// 14. Reviews (Mijozlar sharhlari va reyting)
+model Review {
+  id           String   @id @default(uuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  authorName   String
+  rating       Int      // 1..5
+  comment      String
+  pros         String?
+  cons         String?
+  isVerified   Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+// 15. Favorites (Sevimlilar)
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+// 16. Addresses (Saqlangan manzillar)
+model Address {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String   // Uy, Ofis
+  region    String
+  district  String
+  street    String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// 17. Coupons (Promo-kodlar va chegirmalar)
+model Coupon {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  description     String
+  discountPercent Int
+  maxDiscountUzs  BigInt
+  minOrderUzs     BigInt
+  usageLimit      Int      @default(100)
+  usedCount       Int      @default(0)
+  isActive        Boolean  @default(true)
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+}
+
+// 18. Conversations (AI va Operator Chat sessiyalari)
+model Conversation {
+  id              String    @id @default(uuid())
+  sessionKey      String    @unique
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id])
+  customerName    String    @default("Mehmon Mijoz")
+  customerPhone   String?
+  language        String    @default("uz")
+  mode            String    @default("AI") // AI, OPERATOR
+  status          String    @default("ACTIVE") // ACTIVE, WAITING_OPERATOR, CLOSED
+  assignedAdminId String?
+  assignedAdmin   Admin?    @relation(fields: [assignedAdminId], references: [id])
+  messages        Message[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// 19. Messages (Chat xabarlari)
+model Message {
+  id                  String       @id @default(uuid())
+  conversationId      String
+  conversation        Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderType          String       // USER, AI, OPERATOR, SYSTEM
+  senderName          String
+  content             String
+  recommendedProducts String?      // JSON array of real product slugs/cards from DB
+  createdAt           DateTime     @default(now())
+}
+
+// 20. SupportTickets (Mijoz murojaatlari — Ticket tizimi)
+model SupportTicket {
+  id              String   @id @default(uuid())
+  ticketNumber    String   @unique
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+  customerName    String
+  customerPhone   String
+  subject         String
+  category        String   // ORDER, WARRANTY, TECHNICAL, PAYMENT, OTHER
+  priority        String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status          String   @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
+  message         String
+  adminReply      String?
+  assignedAdminId String?
+  assignedAdmin   Admin?   @relation(fields: [assignedAdminId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// 21. AIUsageLogs (AI xarajatlar, tokenlar va javoblar logi)
+model AIUsageLog {
+  id             String   @id @default(uuid())
+  sessionKey     String
+  provider       String   // gemini, openai, hybrid-db
+  model          String
+  feature        String   // ASSISTANT, PC_BUILDER, VIRTUAL_MANAGER
+  prompt         String
+  response       String
+  toolsCalled    String?
+  tokensUsed     Int      @default(0)
+  estimatedCost  Float    @default(0)
+  latencyMs      Int      @default(0)
+  createdAt      DateTime @default(now())
+}
+
+// 22. Notifications (Tizim, Mijoz va Telegram bildirishnomalari)
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  target    String   // ADMIN, USER, TELEGRAM
+  type      String   // NEW_ORDER, ORDER_STATUS, LOW_STOCK, SUPPORT_TICKET, SYSTEM_ALERT
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// 23. AISettings (Admin paneldagi AI Management sozlamalari)
+model AISettings {
+  id                   String   @id @default("default")
+  isEnabled            Boolean  @default(true)
+  provider             String   @default("hybrid-db")
+  modelName            String   @default("gemini-2.5-flash")
+  dailyFreeLimit       Int      @default(500)
+  dailyUsedCount       Int      @default(0)
+  systemPrompt         String
+  knowledgeBase        String
+  handoffKeywords      String   // operator, inson, shikoyat, qaytarish
+  fallbackPoliteMsgUz  String
+  fallbackPoliteMsgRu  String
+  fallbackPoliteMsgEn  String
+  updatedAt            DateTime @updatedAt
+}
+
+// 24. Banners (Marketing bannerlar va aksiyalar)
+model Banner {
+  id          String   @id @default(uuid())
+  titleUz     String
+  titleRu     String
+  titleEn     String
+  subtitleUz  String
+  subtitleRu  String
+  subtitleEn  String
+  badgeText   String
+  ctaLink     String
+  imageUrl    String
+  gradient    String
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+}
+
+// 25. DeliveryZones (O'zbekistonning 14 hududi bo'yicha yetkazib berish)
+model DeliveryZone {
+  id              String   @id @default(uuid())
+  regionCode      String   @unique
+  regionNameUz    String
+  regionNameRu    String
+  regionNameEn    String
+  districtsJson   String   // JSON array of districts/cities
+  feeUzs          BigInt
+  freeThresholdUzs BigInt
+  estimatedHours  String
+  isActive        Boolean  @default(true)
+}
+
